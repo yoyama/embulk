@@ -10,10 +10,15 @@ import java.io.FileOutputStream;
 import java.io.BufferedWriter;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
 import org.yaml.snakeyaml.Yaml;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Function;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.io.Files;
 import com.google.inject.Injector;
+import org.jruby.embed.ScriptingContainer;
 import org.embulk.config.ConfigSource;
 import org.embulk.config.DataSource;
 import org.embulk.config.ConfigLoader;
@@ -30,7 +35,7 @@ import org.embulk.exec.ResumeState;
 import org.embulk.exec.PartialExecutionException;
 import org.embulk.spi.time.Timestamp;
 import org.embulk.spi.ExecSession;
-import org.embulk.EmbulkService;
+import org.embulk.EmbulkEmbed;
 
 public class Runner
 {
@@ -60,8 +65,9 @@ public class Runner
 
     private final Options options;
     private final ConfigSource systemConfig;
-    private final EmbulkService service;
-    private final Injector injector;
+
+    private EmbulkEmbed embed;
+    private Injector injector;
 
     public Runner(String optionJson)
     {
@@ -73,8 +79,6 @@ public class Runner
         mergeOptionsToSystemConfig(options, configLoader, systemConfig);
 
         this.systemConfig = systemConfig;
-        this.service = new EmbulkService(systemConfig);
-        this.injector = service.initialize();
     }
 
     @SuppressWarnings("unchecked")
@@ -105,27 +109,31 @@ public class Runner
 
     public void main(String command, String[] args)
     {
-        switch (command) {
-        case "run":
-            run(args[0]);
-            break;
-        case "cleanup":
-            cleanup(args[0]);
-            break;
-        case "guess":
-            guess(args[0]);
-            break;
-        case "preview":
-            preview(args[0]);
-            break;
-        default:
-            throw new RuntimeException("Unsupported command: "+command);
+        try (EmbulkEmbed embed = new EmbulkEmbed(systemConfig)) {
+            this.injector = embed.getInjector();
+
+            switch (command) {
+            case "run":
+                run(args[0]);
+                break;
+            case "cleanup":
+                cleanup(args[0]);
+                break;
+            case "guess":
+                guess(args[0]);
+                break;
+            case "preview":
+                preview(args[0]);
+                break;
+            default:
+                throw new RuntimeException("Unsupported command: "+command);
+            }
         }
     }
 
     public void run(String configPath)
     {
-        ConfigSource config = loadYamlConfig(configPath);
+        ConfigSource config = loadConfig(configPath);
         checkFileWritable(options.getNextConfigOutputPath());
         checkFileWritable(options.getResumeStatePath());
 
@@ -199,7 +207,7 @@ public class Runner
         if (resumePath == null) {
             throw new IllegalArgumentException("Resume path is required for cleanup");
         }
-        ConfigSource config = loadYamlConfig(configPath);
+        ConfigSource config = loadConfig(configPath);
         ConfigSource resumeConfig = loadYamlConfig(resumePath);
         ResumeState resume = resumeConfig.loadConfig(ResumeState.class);
 
@@ -212,7 +220,7 @@ public class Runner
 
     public void guess(String partialConfigPath)
     {
-        ConfigSource config = loadYamlConfig(partialConfigPath);
+        ConfigSource config = loadConfig(partialConfigPath);
         checkFileWritable(options.getNextConfigOutputPath());
 
         ConfigDiff configDiff;
@@ -268,7 +276,7 @@ public class Runner
     {
         PreviewResult result;
         {
-            ConfigSource config = loadYamlConfig(partialConfigPath);
+            ConfigSource config = loadConfig(partialConfigPath);
             ExecSession exec = newExecSession(config);
             try {
                 PreviewExecutor preview = injector.getInstance(PreviewExecutor.class);
@@ -304,12 +312,40 @@ public class Runner
         }
     }
 
-    private ConfigSource loadYamlConfig(String yamlPath)
+    private ConfigSource loadConfig(String path)
+    {
+        if (path.endsWith(".yml") || path.endsWith(".yaml")) {
+            return loadYamlConfig(path);
+        }
+        else if (path.endsWith(".yml.liquid") || path.endsWith(".yaml.liquid")) {
+            return loadLiquidYamlConfig(path);
+        }
+        else {
+            throw new ConfigException("Unknown file extension. Supported file extentions are .yml and .yml.liquid: "+path);
+        }
+    }
+
+    private ConfigSource loadYamlConfig(String path)
     {
         try {
-            return injector.getInstance(ConfigLoader.class).fromYamlFile(new File(yamlPath));
+            return injector.getInstance(ConfigLoader.class).fromYamlFile(new File(path));
+        }
+        catch (IOException ex) {
+            throw new ConfigException(ex);
+        }
+    }
 
-        } catch (IOException ex) {
+    private ConfigSource loadLiquidYamlConfig(String path)
+    {
+        LiquidTemplate helper = (LiquidTemplate) injector.getInstance(ScriptingContainer.class).runScriptlet("Embulk::Java::LiquidTemplateHelper.new");
+        try {
+            String source = Files.toString(new File(path), StandardCharsets.UTF_8);
+            String data = helper.render(source, ImmutableMap.<String,String>of());
+            try (ByteArrayInputStream in = new ByteArrayInputStream(data.getBytes(StandardCharsets.UTF_8))) {
+                return injector.getInstance(ConfigLoader.class).fromYaml(in);
+            }
+        }
+        catch (IOException ex) {
             throw new ConfigException(ex);
         }
     }

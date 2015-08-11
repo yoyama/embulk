@@ -3,6 +3,11 @@ package org.embulk.spi;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.FileVisitResult;
 import java.io.File;
 import java.io.IOException;
 import com.google.common.base.Preconditions;
@@ -43,14 +48,43 @@ public class TempFileSpace
 
     public void cleanup()
     {
-        File[] files = dir.listFiles();
-        if (files != null) {
-            for (File e : files) {
-                e.delete();
-                // TODO delete directory recursively
-            }
+        try {
+            deleteFilesIfExistsRecursively(dir);
         }
-        dir.delete();
+        catch (IOException ex) {
+            // ignore IOException
+        }
         dirCreated = false;
+    }
+
+    private void deleteFilesIfExistsRecursively(File dir)
+            throws IOException
+    {
+        Files.walkFileTree(dir.toPath(), new SimpleFileVisitor<Path>()
+        {
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs)
+            {
+                try {
+                    Files.deleteIfExists(file);
+                }
+                catch (IOException ex) {
+                    // ignore IOException
+                }
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult postVisitDirectory(Path dir, IOException exc)
+            {
+                try {
+                    Files.deleteIfExists(dir);
+                }
+                catch (IOException ex) {
+                    // ignore IOException
+                }
+                return FileVisitResult.CONTINUE;
+            }
+        });
     }
 }

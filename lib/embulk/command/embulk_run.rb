@@ -206,6 +206,8 @@ examples:
       args = 0..0
 
     when :gem
+      require 'embulk/gems'
+      Embulk.add_embedded_gem_path
       require 'rubygems/gem_runner'
       Gem::GemRunner.new.run argv
       exit 0
@@ -357,11 +359,7 @@ examples:
         java.lang.Class.forName('org.embulk.command.Runner')
       rescue java.lang.ClassNotFoundException
         # load classpath
-        classpath_dir = Embulk.home('classpath')
-        jars = Dir.entries(classpath_dir).select {|f| f =~ /\.jar$/ }.sort
-        jars.each do |jar|
-          require File.join(classpath_dir, jar)
-        end
+        Embulk.require_classpath
       end
 
       setup_plugin_paths(plugin_paths)
@@ -387,6 +385,14 @@ examples:
     else
       home = File.expand_path('../../..', File.dirname(__FILE__))
       File.join(home, dir)
+    end
+  end
+
+  def self.require_classpath
+    classpath_dir = Embulk.home("classpath")
+    jars = Dir.entries(classpath_dir).select{|f| f =~ /\.jar$/ }.sort
+    jars.each do |jar|
+      require File.join(classpath_dir, jar)
     end
   end
 
