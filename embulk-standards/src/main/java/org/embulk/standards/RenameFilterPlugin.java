@@ -35,7 +35,7 @@ public class RenameFilterPlugin
         Map<String, String> getRenameMap();
 
         @Config("regex_conversions")
-        @ConfigDefault("{}")
+        @ConfigDefault("[]")
         List<RegexConversionParam> getRegexConversions();
     }
 

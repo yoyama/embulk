@@ -1,5 +1,6 @@
 package org.embulk.standards;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.embulk.EmbulkTestRuntime;
 import org.embulk.config.ConfigSource;
@@ -28,6 +29,7 @@ public class TestRenameFilterPlugin
     private final Schema SCHEMA = Schema.builder()
             .add("_c0", STRING)
             .add("_c1", TIMESTAMP)
+            .add("_c2 (test test)", STRING)
             .build();
 
     private RenameFilterPlugin filter;
@@ -85,4 +87,42 @@ public class TestRenameFilterPlugin
             }
         });
     }
+
+    @Test
+    public void checkRenamingRegex()
+    {
+        ConfigSource pluginConfig = Exec.newConfigSource()
+                .set("columns", ImmutableMap.of("_c0", "_c0_new"))
+                .set("regex_conversions",
+                        ImmutableList.of(
+                                ImmutableMap.of("regex", " *\\(.*\\)", "replacement", ""),
+                                ImmutableMap.of("regex", "_c0", "replacement", "c0c0c0"),
+                                ImmutableMap.of("regex", "_c1", "replacement", "c_1")
+                        ));
+
+        filter.transaction(pluginConfig, SCHEMA, new FilterPlugin.Control() {
+            @Override
+            public void run(TaskSource task, Schema newSchema)
+            {
+                // columns precedes regex_conversions
+                Column old0 = SCHEMA.getColumn(0);
+                Column new0 = newSchema.getColumn(0);
+                assertEquals("_c0_new", new0.getName());
+                assertEquals(old0.getType(), new0.getType());
+
+                // _c1 will be changed to c_1
+                Column old1 = SCHEMA.getColumn(1);
+                Column new1 = newSchema.getColumn(1);
+                assertEquals("c_1", new1.getName());
+                assertEquals(old1.getType(), new1.getType());
+
+                // _c2 will be changed to _c2
+                Column old2 = SCHEMA.getColumn(2);
+                Column new2 = newSchema.getColumn(2);
+                assertEquals("_c2", new2.getName());
+                assertEquals(old2.getType(), new2.getType());
+            }
+        });
+    }
+
 }
