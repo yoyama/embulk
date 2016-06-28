@@ -97,7 +97,8 @@ public class TestRenameFilterPlugin
                         ImmutableList.of(
                                 ImmutableMap.of("regex", " *\\(.*\\)", "replacement", ""),
                                 ImmutableMap.of("regex", "_c0", "replacement", "c0c0c0"),
-                                ImmutableMap.of("regex", "_c1", "replacement", "c_1")
+                                ImmutableMap.of("regex", "_c1", "replacement", "c_1"),
+                                ImmutableMap.of("regex", "_c2.*", "replacement", "c2c2c2")
                         ));
 
         filter.transaction(pluginConfig, SCHEMA, new FilterPlugin.Control() {
